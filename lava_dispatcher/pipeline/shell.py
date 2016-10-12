@@ -93,12 +93,26 @@ class ShellCommand(pexpect.spawn):  # pylint: disable=too-many-public-methods
             raise RuntimeError("ShellCommand needs a timeout set by the calling Action")
         if not logger:
             raise RuntimeError("ShellCommand needs a logger")
-        pexpect.spawn.__init__(
-            self, command,
-            timeout=lava_timeout.duration,
-            cwd=cwd,
-            logfile=ShellLogger(logger),
-        )
+        if sys.version >= '3':
+            # Set the encoding to get unicode strings.
+            # This is only available in pexpect>=4
+            pexpect.spawn.__init__(
+                self, command,
+                timeout=lava_timeout.duration,
+                cwd=cwd,
+                logfile=ShellLogger(logger),
+                encoding="utf-8"
+            )
+        else:
+            # TODO: to be removed when using pexpect>=4
+            # Keep the old behavior for python2
+            pexpect.spawn.__init__(
+                self, command,
+                timeout=lava_timeout.duration,
+                cwd=cwd,
+                logfile=ShellLogger(logger),
+            )
+
         self.name = "ShellCommand"
         self.logger = logger
         # os.linesep is based on the interpreter running the dispatcher, not the target device
