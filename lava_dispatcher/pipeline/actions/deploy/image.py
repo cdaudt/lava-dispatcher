@@ -142,8 +142,6 @@ class DeployMonitoredPyOCD(Deployment):
         This is *not* the same as validation of the action
         which can use instance data.
         """
-        if device['device_type'] not in ['nrf52-nitrogen', 'nxp-k64f']:
-            return False
         if parameters['to'] != 'tmpfs':
             return False
         # lookup if the job parameters match the available device methods
