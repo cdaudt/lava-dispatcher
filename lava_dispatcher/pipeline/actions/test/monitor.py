@@ -100,6 +100,7 @@ class TestMonitorAction(TestAction):  # pylint: disable=too-many-instance-attrib
         self.report = {}
         self.fixupdict = {}
         self.patterns = {}
+        self.command = None
 
     def validate(self):
         super(TestMonitorAction, self).validate()
@@ -130,6 +131,16 @@ class TestMonitorAction(TestAction):  # pylint: disable=too-many-instance-attrib
             self.patterns["timeout"] = pexpect.TIMEOUT
             self.patterns["end"] = monitor['end']
             self.patterns["test_result"] = monitor['pattern']
+
+            self.command = monitor.get('command')
+            if self.command:
+                self.logger.info("waiting for command prompt");
+                # Send an empty line to trigger the command prompt
+                connection.sendline("")
+                connection.prompt_str = ">"
+                connection.wait()
+                self.logger.info("sending command '%s'" % self.command);
+                connection.sendline(self.command)
 
             # Find the start string before parsing any output.
             connection.prompt_str = monitor['start']
