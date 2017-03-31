@@ -76,11 +76,26 @@ class ConnectDevice(Action):
             raise JobError("%s command exited %d: %s" % (command, shell.exitstatus, shell.readlines()))
         # ShellSession monitors the pexpect
         connection = self.session_class(self.job, shell)
+
+        # linesep could come from deployment_data
+        linesep = self.get_namespace_data(
+            action='deploy-device-env',
+            label='environment',
+            key='line_separator'
+        )
+        if linesep:
+            connection.raw_connection.linesep = linesep
+
         if self.linesep is not None:
             connection.raw_connection.linesep = self.linesep
+        self.logger.debug("Using line separator: #%r#", connection.raw_connection.linesep)
         connection.connected = True
         connection = super(ConnectDevice, self).run(connection, max_end_time, args)
+
+        if 'prompts' in self.parameters:
+            connection.prompt_str = self.parameters['prompts']
         if not connection.prompt_str:
             connection.prompt_str = [DEFAULT_SHELL_PROMPT]
+        self.logger.debug("Using prompt string: '%s'", connection.prompt_str)
         self.set_namespace_data(action='shared', label='shared', key='connection', value=connection)
         return connection

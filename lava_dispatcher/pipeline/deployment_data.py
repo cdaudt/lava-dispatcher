@@ -72,6 +72,12 @@ class deployment_data_dict(object):  # pylint: disable=invalid-name, too-few-pub
         """
         return self.__data__.keys()
 
+wiced = deployment_data_dict({  # pylint: disable=invalid-name
+    'line_separator': '\r\n',
+
+    # for lava-test-shell
+    'lava_test_shell_file': None,
+})
 
 android = deployment_data_dict({  # pylint: disable=invalid-name
     'TESTER_PS1': "root@linaro# ",
