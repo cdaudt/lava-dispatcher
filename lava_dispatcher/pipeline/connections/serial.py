@@ -43,7 +43,6 @@ class ConnectDevice(Action):
         self.description = "use the configured command to connect serial to the device"
         self.session_class = ShellSession  # wraps the pexpect and provides prompt_str access
         self.shell_class = ShellCommand  # runs the command to initiate the connection
-        self.linesep = None  # optional line separate to override default one
 
     def validate(self):
         super(ConnectDevice, self).validate()
@@ -57,10 +56,6 @@ class ConnectDevice(Action):
         except AttributeError:
             self.errors = "Unable to parse the connection command %s" % command
         self.errors = infrastructure_error(exe)
-        if 'serial_line_separator' in self.job.device:
-            self.linesep = self.job.device['serial_line_separator']
-            self.linesep = self.linesep.replace('CR','\r')
-            self.linesep = self.linesep.replace('LF','\n')
 
     def run(self, connection, max_end_time, args=None):
         connection = self.get_namespace_data(action='shared', label='shared', key='connection', deepcopy=False)
@@ -76,8 +71,6 @@ class ConnectDevice(Action):
             raise JobError("%s command exited %d: %s" % (command, shell.exitstatus, shell.readlines()))
         # ShellSession monitors the pexpect
         connection = self.session_class(self.job, shell)
-        if self.linesep is not None:
-            connection.raw_connection.linesep = self.linesep
         connection.connected = True
         connection = super(ConnectDevice, self).run(connection, max_end_time, args)
         if not connection.prompt_str:
