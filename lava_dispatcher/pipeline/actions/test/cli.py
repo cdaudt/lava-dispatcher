@@ -170,7 +170,6 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
                         self.logger.info("Sending input '{}'"
                                          .format(user_input))
                         test_connection.sendline(user_input)
-
             elif 'check' in step:
                 self.logger.info("check={}".format(step['check']))
 
@@ -205,6 +204,7 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
                 test_connection.sendcontrol(step['control'])
             else:
                 raise RuntimeError("Unsupported sequence")
+
             continue
 
     def _wait_for_prompt(self, test_connection, poke=False, timeout=None):
@@ -275,18 +275,19 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
             self.logger.warning("CLI test timed out")
             self.errors = "lava cli test has timed out"
             self.results.update({'status': 'failed'})
-        elif "pass" in event:
+        elif 'pass' in event:
             results['result'] = 'pass'
             results['extra'].update({'match': match.group(0)})
             self.logger.results(results)
-        elif "fail" in event:
+        elif 'fail' in event:
             results['result'] = 'fail'
             results['extra'].update({'match': match.group(0)})
             self.logger.results(results)
-        elif event == "measure":
-            self._check_measure(match, check, results)
+        elif event == 'measure':
+            keep_running = self._check_measure(match, check, results)
         else:
             self.logger.info("Unhandled event '{}'".format(event))
+
         return keep_running
 
     def _check_measure(self, match, check, results):
@@ -299,7 +300,6 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
         else:
             # Assume first match group is the measurement
             measurement = match.group(1)
-            eval_dict.update({'measurement': measurement})
 
         # Measurements can only be numbers
         try:
@@ -307,13 +307,17 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
         except:
             raise TestError("Invalid measurement %s", measurement)
 
+        eval_dict.update({'measurement': measurement})
         results['measurement'] = measurement;
+
+        keep_running = False
 
         if 'units' in check['measure']:
             results['units'] = check['measure']['units']
             eval_dict.update({'units': check['measure']['units']})
         elif 'units' in match.groupdict():
             results['units'] = match.groupdict()['units']
+
         if 'pass' in check['measure']:
             self._check_expression(results, check['measure']['pass'], eval_dict,
                                    'pass')
@@ -326,6 +330,8 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
             keep_running = True
 
         self.logger.results(results)
+
+        return keep_running
 
     def _check_expression(self, results, expr, eval_dict, cond):
         self.logger.info("Checking '{}' expression '{}'".format(cond, expr))
