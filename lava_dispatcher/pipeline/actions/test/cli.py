@@ -103,6 +103,8 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
         self.patterns = {}
         self.sequence = []
         self.prompt_str = None
+        self._abort_job = None
+        self._skip_test = None
 
     def validate(self):
         super(TestCliAction, self).validate()
@@ -139,16 +141,28 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
         # Take full control of the connection
         with connection.test_connection() as test_connection:
             for test in self.parameters['cli_tests']:
+                self._skip_test = None
+
                 self.test_suite_name = test['name']
 
                 self.sequence = test.get('sequence')
                 self._process_sequence(test_connection)
 
-        self.results.update({'status': 'passed'})
+        if self._abort_job:
+            self.results.update({'status': 'aborted'})
+        else:
+            self.results.update({'status': 'finished'})
+
         return connection
 
     def _process_sequence(self, test_connection):
         for step in self.sequence:
+            # Special handling if flagged to skip test or abort test job
+            if self._skip_test or self._abort_job:
+                if 'check' in step:
+                    self._log_skipped_check(step['check'])
+                continue
+
             # Only one first key,value pair in the dict is of interest
             if 'commands' in step:
                 self.logger.info("commands={}".format(step['commands']))
@@ -257,7 +271,8 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
         name = self.test_suite_name.replace(' ', '-').lower()
         results = {
             'definition': name,
-            'extra': {}
+            'extra': {},
+            'result': 'invalid'
         }
 
         if 'name' in check:
@@ -277,22 +292,29 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
             self.results.update({'status': 'failed'})
         elif 'pass' in event:
             results['result'] = 'pass'
-            results['extra'].update({'match': match.group(0)})
-            self.logger.results(results)
         elif 'fail' in event:
             results['result'] = 'fail'
-            results['extra'].update({'match': match.group(0)})
-            self.logger.results(results)
         elif event == 'measure':
             keep_running = self._check_measure(match, check, results)
         else:
             self.logger.info("Unhandled event '{}'".format(event))
 
+        if results['result'] == 'fail':
+            # Check for failure handling
+            if 'on_fail' in check:
+                if check['on_fail'] == 'skip':
+                    self._skip_test = results['case']
+                elif check['on_fail'] == 'abort':
+                    self._abort_job = results['case']
+
+        if results['result'] != 'invalid':
+            results['extra'].update({'match': match.group(0)})
+            self.logger.results(results)
+            pass
+
         return keep_running
 
     def _check_measure(self, match, check, results):
-        results['extra'].update({'match': match.group(0)})
-
         eval_dict = match.groupdict()
 
         if 'measurement' in match.groupdict():
@@ -329,14 +351,12 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
             results['result'] = 'pass'
             keep_running = True
 
-        self.logger.results(results)
-
         return keep_running
 
     def _check_expression(self, results, expr, eval_dict, cond):
         self.logger.info("Checking '{}' expression '{}'".format(cond, expr))
 
-        results['extra'].update({'measurement \'{}\' expression'.format(cond): 
+        results['extra'].update({'measurement \'{}\' expression'.format(cond):
                                  expr})
 
         if self._validate_check_expression(expr, eval_dict.keys()):
@@ -399,3 +419,24 @@ class TestCliAction(TestAction):  # pylint: disable=too-many-instance-attributes
                 return False
 
         return True
+
+    def _log_skipped_check(self, check):
+        name = self.test_suite_name.replace(' ', '-').lower()
+        results = {
+            'definition': name,
+            'extra': {},
+            'result': 'skip'
+        }
+
+        if 'name' in check:
+            results['case'] = check['name'].replace(' ', '-').lower()
+        else:
+            results['case'] = name
+
+        if self._abort_job:
+            reason = 'abort on fail of test case \'{}\''.format(self._abort_job)
+        else:
+            reason = 'skip on fail of test case \'{}\''.format(self._skip_test)
+
+        results['extra'].update({'reason for skipping': reason})
+        self.logger.results(results)
