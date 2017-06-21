@@ -22,13 +22,13 @@
 import os
 import re
 import logging
-import unittest
 from lava_dispatcher.pipeline.utils.filesystem import mkdtemp
 from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.action import Timeout, JobError
 from lava_dispatcher.pipeline.shell import ShellSession, ShellCommand
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 from lava_dispatcher.pipeline.utils.strings import substitute
 from lava_dispatcher.pipeline.menus.menus import SelectorMenu
 
@@ -88,6 +88,7 @@ class MenuFactory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 0, None, dispatcher_config="",
                                output_dir=output_dir)
+            job.logger = DummyLogger()
         return job
 
 
@@ -133,7 +134,7 @@ class TestUefi(StdoutTestCase):  # pylint: disable=too-many-public-methods
             "Start:"
         )
         self.assertIsInstance(selector.items, list)
-        description_ref = pipeline_reference('mustang-uefi.yaml')
+        description_ref = self.pipeline_reference('mustang-uefi.yaml')
         self.assertEqual(description_ref, self.job.pipeline.describe(False))
         # just dummy strings
         substitution_dictionary = {

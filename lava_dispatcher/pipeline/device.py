@@ -22,6 +22,8 @@
 import os
 import yaml
 
+from lava_dispatcher.pipeline.action import ConfigurationError
+
 
 class PipelineDevice(dict):
     """
@@ -37,7 +39,6 @@ class PipelineDevice(dict):
         self.target = hostname
 
         self['hostname'] = hostname
-        self.setdefault('power_state', 'off')  # assume power is off at start of job
 
     def check_config(self, job):
         """
@@ -82,24 +83,12 @@ class PipelineDevice(dict):
             return self['commands']['connect']
         return ''
 
-    @property
-    def power_state(self):
-        """
-        The power_state may appear to be a boolean (with on and off string values) but
-        also copes with devices where the device has no power commands, returning an
-        empty string.
-        """
-        if 'commands' in self and 'power_on' in self['commands']:
-            return self['power_state']
-        return ''
-
-    @power_state.setter
-    def power_state(self, state):
-        if 'commands' not in self or 'power_off' not in self['commands']:
-            raise RuntimeError("Power state not supported for %s" % self['hostname'])
-        if state is '' or state is not 'on' and state is not 'off':
-            raise RuntimeError("Attempting to set an invalid power state")
-        self['power_state'] = state
+    def get_constant(self, const):
+        if 'constants' not in self:
+            raise ConfigurationError("constants section not present in the device config.")
+        if const not in self['constants']:
+            raise ConfigurationError("Constant %s does not exist in the device config 'constants' section." % const)
+        return self['constants'][const]
 
 
 class NewDevice(PipelineDevice):
@@ -116,7 +105,7 @@ class NewDevice(PipelineDevice):
             with open(target) as f_in:
                 self.update(yaml.load(f_in))
         except yaml.parser.ParserError:
-            raise RuntimeError("%s could not be parsed" % target)
+            raise ConfigurationError("%s could not be parsed" % target)
 
         # Get the device name (/path/to/kvm01.yaml => kvm01)
         self.target = os.path.splitext(os.path.basename(target))[0]

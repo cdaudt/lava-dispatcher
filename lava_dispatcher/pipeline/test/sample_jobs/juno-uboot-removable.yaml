@@ -17,7 +17,7 @@ timeouts:
       seconds: 180
     dd-image:
       seconds: 900
-    http_download:
+    http-download:
       seconds: 600
   connections:
     u-boot-interrupt:
@@ -30,7 +30,7 @@ timeouts:
       seconds: 180
     dd-image:
       seconds: 900
-    http_download:
+    http-download:
       seconds: 600
 priority: medium
 visibility: public
@@ -44,6 +44,7 @@ actions:
      os: oe
      kernel:
          url: http://ironhide.bounceme.net/deano-my-lad/juno-latest-oe-uboot/SOFTWARE/Image
+         type: image
      dtb:
          url: http://ironhide.bounceme.net/deano-my-lad/juno-latest-oe-uboot/SOFTWARE/juno.dtb
      ramdisk:
@@ -59,7 +60,6 @@ actions:
      namespace: openembedded
      method: u-boot
      commands: ramdisk-tftp
-     type: booti
      parameters:
        shutdown-message: "reboot: Restarting system"
      prompts:
@@ -79,6 +79,8 @@ actions:
          tool: /usr/bin/wget
          prompt: HTTP request sent, awaiting response
          options: --no-check-certificate --no-proxy --connect-timeout=30 -S --progress=dot:giga -O - {DOWNLOAD_URL}
+     deployment_msgs:
+       - '[0-9]+\+[0-9]+ records out'
 
   - deploy:
      namespace: android
@@ -88,6 +90,7 @@ actions:
      os: android
      kernel:
          url: http://ironhide.bounceme.net/deano-my-lad/juno-lsk-android-uboot/SOFTWARE/Image
+         type: image
      ramdisk:
          url: http://ironhide.bounceme.net/deano-my-lad/juno-lsk-android-uboot/SOFTWARE/ramdisk.img
          header: u-boot
@@ -99,7 +102,6 @@ actions:
   - boot:
      namespace: android
      method: u-boot
-     type: booti
      commands: ramdisk-tftp-usb
      timeout:
        minutes: 5

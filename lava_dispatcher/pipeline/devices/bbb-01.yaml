@@ -36,12 +36,21 @@ commands:
   power_off: /usr/bin/pduclient --daemon localhost --hostname pdu --command off --port 08
   power_on: /usr/bin/pduclient --daemon localhost --hostname pdu --command on --port 08
 
+constants:
+  shutdown-message: "The system is going down for reboot NOW"
+  boot-message: "Booting Linux"
+  cpu-reset-message: "Resetting CPU"
+  default-shell-prompt: "lava-test: # "
+  uboot-autoboot-prompt: "Hit any key to stop autoboot"
+  uboot-interrupt-character: " "
 
 actions:
   deploy:
     connections:
       lxc:
       serial:
+    parameters:
+      mkimage_arch: arm # string to pass to mkimage -A when adding UBoot headers
     methods:
       tftp:
       usb:
@@ -78,7 +87,6 @@ actions:
           bootloader_prompt: U-Boot
           boot_message: Booting Linux
           send_char: False
-          mkimage_arch: arm # string to pass to mkimage -A when adding UBoot headers
           # interrupt: # character needed to interrupt u-boot, single whitespace by default
           # method specific stanza
         oe:

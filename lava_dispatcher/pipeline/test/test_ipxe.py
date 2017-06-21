@@ -32,15 +32,12 @@ from lava_dispatcher.pipeline.actions.boot import (
 from lava_dispatcher.pipeline.actions.deploy.tftp import TftpAction
 from lava_dispatcher.pipeline.job import Job
 from lava_dispatcher.pipeline.action import Pipeline, JobError
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 from lava_dispatcher.pipeline.utils.network import dispatcher_ip
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
 from lava_dispatcher.pipeline.utils.filesystem import mkdtemp
 from lava_dispatcher.pipeline.utils.strings import substitute
-from lava_dispatcher.pipeline.utils.constants import (
-    SHUTDOWN_MESSAGE,
-    BOOT_MESSAGE,
-)
 
 
 class X86Factory(Factory):  # pylint: disable=too-few-public-methods
@@ -57,6 +54,7 @@ class X86Factory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 4212, None, "",
                                output_dir=output_dir)
+        job.logger = DummyLogger()
         return job
 
 
@@ -70,7 +68,7 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         job = self.factory.create_job('sample_jobs/ipxe-ramdisk.yaml')
         self.assertIsNotNone(job)
 
-        description_ref = pipeline_reference('ipxe.yaml')
+        description_ref = self.pipeline_reference('ipxe.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))
 
         self.assertIsNone(job.validate())
@@ -87,7 +85,7 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         self.assertIsNotNone(tftp.internal_pipeline)
         self.assertEqual(
             [action.name for action in tftp.internal_pipeline.actions],
-            ['download_retry', 'download_retry', 'download_retry', 'prepare-tftp-overlay', 'deploy-device-env']
+            ['download-retry', 'download-retry', 'download-retry', 'prepare-tftp-overlay', 'lxc-add-device-action', 'deploy-device-env']
         )
         self.assertIn('ramdisk', [action.key for action in tftp.internal_pipeline.actions if hasattr(action, 'key')])
         self.assertIn('kernel', [action.key for action in tftp.internal_pipeline.actions if hasattr(action, 'key')])
@@ -109,7 +107,8 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         self.assertEqual(job.pipeline.errors, [])
         self.assertIn('ipxe', job.device['actions']['boot']['methods'])
         params = job.device['actions']['boot']['methods']['ipxe']['parameters']
-        boot_message = params.get('boot_message', BOOT_MESSAGE)
+        boot_message = params.get('boot_message',
+                                  job.device.get_constant('boot-message'))
         self.assertIsNotNone(boot_message)
         bootloader_action = [action for action in job.pipeline.actions if action.name == 'bootloader-action'][0]
         bootloader_retry = [action for action in bootloader_action.internal_pipeline.actions if action.name == 'bootloader-retry'][0]
@@ -122,7 +121,7 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
                 self.assertEqual('ipxe', action.parameters['method'])
                 self.assertEqual(
                     'reboot: Restarting system',
-                    action.parameters.get('parameters', {}).get('shutdown-message', SHUTDOWN_MESSAGE)
+                    action.parameters.get('parameters', {}).get('shutdown-message', job.device.get_constant('shutdown-message'))
                 )
             if isinstance(action, TftpAction):
                 self.assertIn('ramdisk', action.parameters)
@@ -159,7 +158,6 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         overlay = BootloaderCommandOverlay()
         pipeline.add_action(overlay)
         ip_addr = dispatcher_ip(None)
-        parsed = []
         kernel = parameters['actions']['deploy']['kernel']
         ramdisk = parameters['actions']['deploy']['ramdisk']
 
@@ -206,7 +204,7 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         self.assertIsNotNone(test_dir)
         self.assertIn('/lava-', test_dir)
         self.assertIsNotNone(extract)
-        self.assertEqual(extract.timeout.duration, job.parameters['timeouts'][extract.name]['seconds'])
+        self.assertEqual(extract.timeout.duration, 120)
 
     def test_reset_actions(self):
         job = self.factory.create_job('sample_jobs/ipxe.yaml')
@@ -234,8 +232,8 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
                 reset_action = action
         names = [r_action.name for r_action in reset_action.internal_pipeline.actions]
         self.assertIn('soft-reboot', names)
-        self.assertIn('pdu_reboot', names)
-        self.assertIn('power_on', names)
+        self.assertIn('pdu-reboot', names)
+        self.assertIn('power-on', names)
 
     @unittest.skipIf(infrastructure_error('telnet'), "telnet not installed")
     def test_prompt_from_job(self):  # pylint: disable=too-many-locals
@@ -264,6 +262,7 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
         sample_job_string = yaml.dump(sample_job_data)
         job = parser.parse(sample_job_string, device, 4212, None, "",
                            output_dir='/tmp')
+        job.logger = DummyLogger()
         job.validate()
         bootloader = [action for action in job.pipeline.actions if action.name == 'bootloader-action'][0]
         retry = [action for action in bootloader.internal_pipeline.actions
@@ -287,5 +286,5 @@ class TestBootloaderAction(StdoutTestCase):  # pylint: disable=too-many-public-m
     def test_ipxe_with_monitor(self):
         job = self.factory.create_job('sample_jobs/ipxe-monitor.yaml')
         job.validate()
-        description_ref = pipeline_reference('ipxe-monitor.yaml')
+        description_ref = self.pipeline_reference('ipxe-monitor.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))

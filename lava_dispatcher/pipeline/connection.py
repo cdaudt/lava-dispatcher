@@ -22,9 +22,15 @@ import os
 import signal
 import decimal
 import logging
-from lava_dispatcher.pipeline.action import TestError, Timeout, InternalObject
+from lava_dispatcher.pipeline.action import (
+    InternalObject,
+    LAVABug,
+    TestError,
+    Timeout,
+)
 
 # pylint: disable=too-many-public-methods,too-many-instance-attributes
+# pylint: disable=unused-argument,no-self-use
 
 
 class BaseSignalHandler(object):
@@ -134,22 +140,22 @@ class Connection(object):
         if self.connected:
             self.raw_connection.sendline(line, delay=delay)
         elif not disconnecting:
-            raise RuntimeError()
+            raise LAVABug("sendline")
 
     def sendcontrol(self, char):
         if self.connected:
             self.raw_connection.sendcontrol(char)
         else:
-            raise RuntimeError()
+            raise LAVABug("sendcontrol")
 
     def force_prompt_wait(self, remaining):
-        raise NotImplementedError()
+        raise LAVABug("'force_prompt_wait' not implemented")
 
     def wait(self, max_end_time=None):
-        raise NotImplementedError()
+        raise LAVABug("'wait' not implemented")
 
     def disconnect(self, reason):
-        raise NotImplementedError()
+        raise LAVABug("'disconnect' not implemented")
 
     def finalise(self):
         if self.raw_connection:
@@ -211,13 +217,13 @@ class Protocol(object):
         return len([x for x in self.errors if x]) == 0
 
     def set_up(self):
-        raise NotImplementedError()
+        raise LAVABug("'set_up' not implemented")
 
     def configure(self, device, job):  # pylint: disable=unused-argument
         self.configured = True
 
     def finalise_protocol(self, device=None):
-        raise NotImplementedError()
+        raise LAVABug("'finalise_protocol' not implemented")
 
     def check_timeout(self, duration, data):  # pylint: disable=unused-argument,no-self-use
         """
@@ -230,19 +236,20 @@ class Protocol(object):
         """
         return False
 
-    def _api_select(self, data):  # pylint: disable=no-self-use
+    def _api_select(self, data, action=None):  # pylint: disable=no-self-use
         if not data:
             return None
-        raise NotImplementedError()
+        raise LAVABug("'_api_select' not implemented")
 
-    def __call__(self, args):  # pylint: disable=no-self-use
+    def __call__(self, *args, **kwargs):  # pylint: disable=no-self-use
         """ Makes the Protocol callable so that actions can send messages just using the protocol.
         This function may block until the specified API call returns. Some API calls may involve a
         substantial period of polling.
         :param args: arguments of the API call to make
         :return: A Python object containing the reply dict from the API call
         """
-        return self._api_select(args)
+        # implementations will usually need a try: except: block around _api.select()
+        return self._api_select(args, action=None)
 
     def collate(self, reply_dict, params_dict):  # pylint: disable=unused-argument,no-self-use
         return None

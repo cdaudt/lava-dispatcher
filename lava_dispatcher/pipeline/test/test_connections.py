@@ -30,7 +30,8 @@ from lava_dispatcher.pipeline.action import Timeout
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.actions.boot.ssh import SchrootAction
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 from lava_dispatcher.pipeline.utils.filesystem import check_ssh_identity_file
 from lava_dispatcher.pipeline.protocols.multinode import MultinodeProtocol
 
@@ -49,6 +50,7 @@ class ConnectionFactory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 0, None, dispatcher_config="",
                                output_dir=output_dir)
+            job.logger = DummyLogger()
         return job
 
     def create_bbb_job(self, filename, output_dir='/tmp/'):  # pylint: disable=no-self-use
@@ -58,6 +60,7 @@ class ConnectionFactory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 4212, None, "",
                                output_dir=output_dir)
+            job.logger = DummyLogger()
         return job
 
 
@@ -76,7 +79,7 @@ class TestConnection(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self.job.validate()
         self.assertEqual([], self.job.pipeline.errors)
         # Check Pipeline
-        description_ref = pipeline_reference('ssh-deploy.yaml')
+        description_ref = self.pipeline_reference('ssh-deploy.yaml')
         self.assertEqual(description_ref, self.job.pipeline.describe(False))
 
     @unittest.skipIf(infrastructure_error('schroot'), "schroot not installed")
@@ -187,9 +190,18 @@ class TestConnection(StdoutTestCase):  # pylint: disable=too-many-public-methods
                     if 'boot' in boot and 'schroot' in boot['boot']][0]
         self.assertEqual(boot_act['schroot'], schroot.parameters['schroot'])
 
+    def test_primary_ssh(self):
+        factory = ConnectionFactory()
+        job = factory.create_ssh_job('sample_jobs/primary-ssh.yaml', mkdtemp())
+        job.validate()
+        overlay = [action for action in job.pipeline.actions if action.name == 'scp-overlay'][0]
+        self.assertIsNotNone(overlay.parameters['deployment_data'])
+        tar_flags = overlay.parameters['deployment_data']['tar_flags'] if 'tar_flags' in overlay.parameters['deployment_data'].keys() else ''
+        self.assertIsNotNone(tar_flags)
+
     def test_guest_ssh(self):  # pylint: disable=too-many-locals,too-many-statements
         self.assertIsNotNone(self.guest_job)
-        description_ref = pipeline_reference('bbb-ssh-guest.yaml')
+        description_ref = self.pipeline_reference('bbb-ssh-guest.yaml', job=self.guest_job)
         self.assertEqual(description_ref, self.guest_job.pipeline.describe(False))
         self.guest_job.validate()
         multinode = [protocol for protocol in self.guest_job.protocols if protocol.name == MultinodeProtocol.name][0]
@@ -267,7 +279,7 @@ class TestConnection(StdoutTestCase):  # pylint: disable=too-many-public-methods
         multinode = [item for item in overlay[0].internal_pipeline.actions if item.name == 'lava-multinode-overlay']
         self.assertEqual(len(multinode), 1)
         # Check Pipeline
-        description_ref = pipeline_reference('ssh-guest.yaml')
+        description_ref = self.pipeline_reference('ssh-guest.yaml', job=self.guest_job)
         self.assertEqual(description_ref, self.guest_job.pipeline.describe(False))
 
 
@@ -291,7 +303,7 @@ class TestTimeouts(StdoutTestCase):
         test_action = [action for action in job.pipeline.actions if action.name == 'lava-test-retry'][0]
         test_shell = [action for action in test_action.internal_pipeline.actions if action.name == 'lava-test-shell'][0]
         self.assertEqual(test_shell.connection_timeout.duration, 240)  # job specifies 4 minutes
-        self.assertEqual(test_shell.timeout.duration, 420)  # job specifies 7 minutes
+        self.assertEqual(test_shell.timeout.duration, 300)  # job (test action block) specifies 5 minutes
         self.assertEqual(deploy.timeout.duration, 120)  # job specifies 2 minutes
         self.assertNotEqual(deploy.connection_timeout.duration, Timeout.default_duration())
         self.assertNotEqual(deploy.connection_timeout.duration, test_shell.connection_timeout)
@@ -322,7 +334,7 @@ class TestTimeouts(StdoutTestCase):
         test_action = [action for action in job.pipeline.actions if action.name == 'lava-test-retry'][0]
         test_shell = [action for action in test_action.internal_pipeline.actions if action.name == 'lava-test-shell'][0]
         self.assertEqual(test_shell.connection_timeout.duration, 20)
-        self.assertEqual(test_shell.timeout.duration, 420)
+        self.assertEqual(test_shell.timeout.duration, 300)
         uboot = [action for action in job.pipeline.actions if action.name == 'uboot-action'][0]
         retry = [action for action in uboot.internal_pipeline.actions if action.name == 'uboot-retry'][0]
         auto = [action for action in retry.internal_pipeline.actions if action.name == 'auto-login-action'][0]
@@ -337,14 +349,8 @@ class TestTimeouts(StdoutTestCase):
             data = yaml.load(uboot_ramdisk)
         connection_timeout = Timeout.parse(data['timeouts']['connection'])
         self.assertEqual(connection_timeout, 240)
-        data['timeouts']['connections'] = {'uboot-retry': {}}
-        data['timeouts']['connections']['uboot-retry'] = {'seconds': 20}
         job = self.create_custom_job(yaml.dump(data))
         boot = [action for action in job.pipeline.actions if action.name == 'uboot-action'][0]
         retry = [action for action in boot.internal_pipeline.actions if action.name == 'uboot-retry'][0]
-        self.assertEqual(retry.timeout.duration, Timeout.parse(job.device['timeouts']['actions'][retry.name]))
-        self.assertEqual(
-            Timeout.parse(data['timeouts']['connections'][retry.name]),
-            retry.connection_timeout.duration
-        )
-        self.assertEqual(90, retry.timeout.duration)
+        self.assertEqual(retry.timeout.duration, 90)  # Set by the job global action timeout
+        self.assertEqual(retry.connection_timeout.duration, 45)

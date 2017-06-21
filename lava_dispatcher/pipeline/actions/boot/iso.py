@@ -20,7 +20,12 @@
 
 
 import os
-from lava_dispatcher.pipeline.action import Action, JobError, Pipeline, InfrastructureError
+from lava_dispatcher.pipeline.action import (
+    Action,
+    ConfigurationError,
+    JobError,
+    Pipeline,
+)
 from lava_dispatcher.pipeline.logical import Boot
 from lava_dispatcher.pipeline.actions.boot import BootAction
 from lava_dispatcher.pipeline.utils.shell import which
@@ -58,7 +63,7 @@ class BootIsoInstallerAction(BootAction):
 
     def __init__(self):
         super(BootIsoInstallerAction, self).__init__()
-        self.name = 'boot_installer_iso'
+        self.name = 'boot-installer-iso'
         self.description = "boot installer with preseed"
         self.summary = "boot installer iso image"
 
@@ -98,13 +103,13 @@ class IsoCommandLine(Action):  # pylint: disable=too-many-instance-attributes
 
         commands = []
         # get the download args in run()
-        image_arg = self.get_namespace_data(action='download_action', label='iso', key='image_arg')
-        action_arg = self.get_namespace_data(action='download_action', label='iso', key='file')
+        image_arg = self.get_namespace_data(action='download-action', label='iso', key='image_arg')
+        action_arg = self.get_namespace_data(action='download-action', label='iso', key='file')
         substitutions["{%s}" % 'iso'] = action_arg
         commands.append(image_arg)
         command_line += ' '.join(substitute(commands, substitutions))
 
-        preseed_file = self.get_namespace_data(action='download_action', label='file', key='preseed')
+        preseed_file = self.get_namespace_data(action='download-action', label='file', key='preseed')
         if not preseed_file:
             raise JobError("Unable to identify downloaded preseed filename.")
         substitutions = {'{preseed}': preseed_file}
@@ -170,7 +175,7 @@ class IsoRebootAction(Action):
             self.sub_command = [qemu_binary]
             self.sub_command.extend(boot['parameters'].get('options', []))
         except AttributeError as exc:
-            raise InfrastructureError(exc)
+            raise ConfigurationError(exc)
         except (KeyError, TypeError):
             self.errors = "Invalid parameters for %s" % self.name
 
@@ -203,8 +208,5 @@ class IsoRebootAction(Action):
         shell_connection = super(IsoRebootAction, self).run(shell_connection, max_end_time, args)
         shell_connection.prompt_str = [INSTALLER_QUIET_MSG]
         self.wait(shell_connection)
-        res = 'failed' if self.errors else 'success'
-        self.set_namespace_data(action='boot', label='shared', key='boot-result', value=res)
         self.set_namespace_data(action='shared', label='shared', key='connection', value=shell_connection)
-        self.logger.debug("boot-result: %s", res)
         return shell_connection

@@ -20,7 +20,7 @@
 
 import os
 
-from lava_dispatcher.pipeline.action import Action, Pipeline, JobError
+from lava_dispatcher.pipeline.action import Action, JobError, Pipeline
 from lava_dispatcher.pipeline.logical import Deployment
 from lava_dispatcher.pipeline.actions.deploy import DeployAction
 from lava_dispatcher.pipeline.actions.deploy.download import DownloaderAction
@@ -177,12 +177,12 @@ class IsoPullInstaller(Action):
         """
         # need download location
         iso_download = self.get_namespace_data(
-            action='download_action',
+            action='download-action',
             label='iso',
             key='file'
         )
         if not iso_download:
-            raise JobError("Download of installer image failed.")
+            raise JobError("installer image path is not present in the namespace.")
         destination = os.path.dirname(iso_download)
         copy_out_files(iso_download, self.files.values(), destination)
         for key, value in self.files.items():

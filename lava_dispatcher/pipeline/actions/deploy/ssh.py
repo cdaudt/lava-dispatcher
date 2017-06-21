@@ -83,6 +83,9 @@ class ScpOverlay(DeployAction):
         self.items = [
             'firmware', 'kernel', 'dtb', 'rootfs', 'modules'
         ]
+        if not self.test_has_shell:
+            self.errors = "Scp overlay needs a test action."
+            return
         lava_test_results_base = self.parameters['deployment_data']['lava_test_results_dir']
         lava_test_results_dir = lava_test_results_base % self.job.job_id
         self.set_namespace_data(action='test', label='results', key='lava_test_results_dir', value=lava_test_results_dir)
@@ -94,9 +97,8 @@ class ScpOverlay(DeployAction):
         self.internal_pipeline.add_action(OverlayAction())
         for item in self.items:
             if item in parameters:
-                download = DownloaderAction(item, path=self.mkdtemp())
-                download.max_retries = 3
-                self.internal_pipeline.add_action(download, parameters)
+                self.internal_pipeline.add_action(DownloaderAction(item, path=self.mkdtemp()),
+                                                  parameters)
                 self.set_namespace_data(action=self.name, label='scp', key=item, value=True, parameters=parameters)
         # we might not have anything to download, just the overlay to push
         self.internal_pipeline.add_action(PrepareOverlayScp())

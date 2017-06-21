@@ -19,7 +19,6 @@
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
-from lava_dispatcher.pipeline.utils.constants import DEFAULT_SHELL_PROMPT
 from lava_dispatcher.pipeline.action import (
     Action,
     JobError,
@@ -63,10 +62,18 @@ class ConnectDevice(Action):
             self.linesep = self.linesep.replace('LF','\n')
 
     def run(self, connection, max_end_time, args=None):
-        connection = self.get_namespace_data(action='shared', label='shared', key='connection', deepcopy=False)
+        connection_namespace = self.parameters.get('connection-namespace', None)
+        parameters = None
+        if connection_namespace:
+            parameters = {"namespace": connection_namespace}
+        connection = self.get_namespace_data(
+            action='shared', label='shared', key='connection', deepcopy=False, parameters=parameters)
         if connection:
             self.logger.debug("Already connected")
             return connection
+        elif connection_namespace:
+            self.logger.warning("connection_namespace provided but no connection found. "
+                                "Please ensure that this parameter is correctly set to existing namespace.")
 
         command = self.job.device['commands']['connect'][:]  # local copy to retain idempotency.
         self.logger.info("%s Connecting to device using '%s'", self.name, command)
@@ -95,7 +102,8 @@ class ConnectDevice(Action):
         if 'prompts' in self.parameters:
             connection.prompt_str = self.parameters['prompts']
         if not connection.prompt_str:
-            connection.prompt_str = [DEFAULT_SHELL_PROMPT]
+            connection.prompt_str = [self.job.device.get_constant(
+                'default-shell-prompt')]
         self.logger.debug("Using prompt string: '%s'", connection.prompt_str)
         self.set_namespace_data(action='shared', label='shared', key='connection', value=connection)
         return connection

@@ -20,7 +20,7 @@
 
 import os
 import unittest
-from lava_dispatcher.pipeline.action import Action, JobError
+from lava_dispatcher.pipeline.action import Action, ConfigurationError, JobError
 from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.actions.deploy import DeployAction
@@ -28,6 +28,7 @@ from lava_dispatcher.pipeline.actions.boot import BootAction
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
 from lava_dispatcher.pipeline.actions.boot.u_boot import UBootInterrupt, UBootAction
 from lava_dispatcher.pipeline.test.test_basic import StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 
 # Test the loading of test definitions within the deploy stage
 
@@ -70,8 +71,7 @@ class TestJobDeviceParameters(StdoutTestCase):  # pylint: disable=too-many-publi
         job_parser = JobParser()
         device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/bbb-01.yaml'))
         self.assertIn('power_state', device)
-        self.assertEqual(device.power_state, 'off')
-        self.assertTrue(hasattr(device, 'power_state'))
+        self.assertFalse(hasattr(device, 'power_state'))
         self.assertFalse(hasattr(device, 'hostname'))
         self.assertIn('hostname', device)
         sample_job_file = os.path.join(os.path.dirname(__file__), 'sample_jobs/uboot-ramdisk.yaml')
@@ -99,7 +99,7 @@ class TestJobDeviceParameters(StdoutTestCase):  # pylint: disable=too-many-publi
         self.assertTrue(uboot_action.valid)
         for action in uboot_action.internal_pipeline.actions:
             if isinstance(action, UBootInterrupt):
-                self.assertIn('power_on', action.job.device['commands'])
+                self.assertIn('power-on', action.job.device['commands'])
                 self.assertIn('hard_reset', action.job.device['commands'])
                 self.assertIn('connect', action.job.device['commands'])
                 self.assertEqual(action.job.device['commands']['connect'].split(' ')[0], 'telnet')
@@ -115,19 +115,19 @@ class TestJobDeviceParameters(StdoutTestCase):  # pylint: disable=too-many-publi
 
     def test_device_power(self):
         device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/bbb-01.yaml'))
-        self.assertEqual(device.power_state, 'off')
         self.assertNotEqual(device.hard_reset_command, '')
         self.assertNotEqual(device.power_command, '')
         self.assertIn('on', device.power_command)
-        device.power_state = 'on'
-        self.assertEqual(device.power_state, 'on')
         device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/kvm01.yaml'))
-        self.assertEqual(device.power_state, '')
         self.assertEqual(device.hard_reset_command, '')
         self.assertEqual(device.power_command, '')
-        with self.assertRaises(RuntimeError):
-            device.power_state = ''
-        self.assertEqual(device.power_command, '')
+
+    def test_device_constants(self):
+        device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/bbb-01.yaml'))
+        self.assertIn('constants', device)
+        self.assertEqual(device.get_constant('boot-message'), "Booting Linux")
+        self.assertRaises(ConfigurationError,
+                          device.get_constant, ('non-existing-const'))
 
 
 class TestDeviceEnvironment(StdoutTestCase):  # pylint: disable=too-many-public-methods
@@ -168,6 +168,7 @@ overrides:
             job = job_parser.parse(
                 sample_job_data, device, 4212, None, "",
                 output_dir='/tmp', env_dut=data)
+        job.logger = DummyLogger()
         self.assertEqual(
             job.parameters['env_dut'],
             data
@@ -190,6 +191,7 @@ overrides:
             job = job_parser.parse(
                 sample_job_data, device, 4212, None, "",
                 output_dir='/tmp', env_dut=data)
+        job.logger = DummyLogger()
         self.assertEqual(
             job.parameters['env_dut'],
             data
@@ -230,7 +232,7 @@ class TestCommand(StdoutTestCase):
         command = 'false'
         # sets return code non-zero with no output
         log = fake.run_command(command.split(' '))
-        self.assertIsNone(log)
+        self.assertFalse(log)
         self.assertNotEqual([], fake.errors)
 
     def test_allow_silent_error(self):
@@ -244,7 +246,7 @@ class TestCommand(StdoutTestCase):
         fake = FakeAction()
         command = './no-script'
         log = fake.run_command(command.split(' '))
-        self.assertIsNone(log)
+        self.assertFalse(log)
         self.assertNotEqual([], fake.errors)
 
     def test_allow_silent_invalid(self):

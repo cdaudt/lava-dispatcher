@@ -2,17 +2,17 @@
   name: tftp-deploy
   pipeline:
   - class: actions.deploy.download.DownloaderAction
-    name: download_retry
+    name: download-retry
     pipeline:
-    - {class: actions.deploy.download.HttpDownloadAction, name: http_download}
+    - {class: actions.deploy.download.HttpDownloadAction, name: http-download}
   - class: actions.deploy.download.DownloaderAction
-    name: download_retry
+    name: download-retry
     pipeline:
-    - {class: actions.deploy.download.HttpDownloadAction, name: http_download}
+    - {class: actions.deploy.download.HttpDownloadAction, name: http-download}
   - class: actions.deploy.download.DownloaderAction
-    name: download_retry
+    name: download-retry
     pipeline:
-    - {class: actions.deploy.download.HttpDownloadAction, name: http_download}
+    - {class: actions.deploy.download.HttpDownloadAction, name: http-download}
   - class: actions.deploy.apply_overlay.PrepareOverlayTftp
     name: prepare-tftp-overlay
     pipeline:
@@ -41,6 +41,7 @@
     - {class: actions.deploy.apply_overlay.ApplyOverlayTftp, name: apply-overlay-tftp}
     - {class: actions.deploy.apply_overlay.ConfigurePreseedFile, name: configure-preseed-file}
     - {class: actions.deploy.apply_overlay.CompressRamdisk, name: compress-ramdisk}
+  - {class: actions.deploy.lxc.LxcAddDeviceAction, name: lxc-add-device-action}
   - {class: actions.deploy.environment.DeployDeviceEnvironment, name: deploy-device-env}
 - class: actions.boot.uefi_menu.UefiMenuAction
   name: uefi-menu-action
@@ -51,8 +52,9 @@
     name: reboot-device
     pipeline:
     - {class: power.RebootDevice, name: soft-reboot}
-    - {class: power.PDUReboot, name: pdu_reboot}
-    - {class: power.PowerOn, name: power_on}
+    - {class: power.PDUReboot, name: pdu-reboot}
+    - {class: power.SoftReboot, name: send-reboot-command}
+    - {class: power.PowerOn, name: power-on}
   - {class: actions.boot.uefi_menu.UEFIMenuInterrupt, name: uefi-menu-interrupt}
   - {class: actions.boot.uefi_menu.UefiMenuSelector, name: uefi-menu-selector}
   - {class: menus.menus.MenuReset, name: menu-reset}
@@ -65,4 +67,4 @@
 - class: power.FinalizeAction
   name: finalize
   pipeline:
-  - {class: power.PowerOff, name: power_off}
+  - {class: power.PowerOff, name: power-off}

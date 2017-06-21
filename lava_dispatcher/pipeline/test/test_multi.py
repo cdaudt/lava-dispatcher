@@ -21,7 +21,7 @@
 
 import os
 import yaml
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import StdoutTestCase
 from lava_dispatcher.pipeline.job import Job
 from lava_dispatcher.pipeline.action import Pipeline, Timeout
 from lava_dispatcher.pipeline.actions.deploy import DeployAction
@@ -29,6 +29,7 @@ from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.utils.filesystem import mkdtemp
 from lava_dispatcher.pipeline.test.test_uboot import UBootFactory
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 
 # pylint: disable=too-many-public-methods,too-few-public-methods
 
@@ -90,7 +91,7 @@ class TestMultiDeploy(StdoutTestCase):
 
         def __init__(self):
             super(TestMultiDeploy.TestDeployAction, self).__init__()
-            self.name = "fake_deploy"
+            self.name = "fake-deploy"
             self.summary = "fake deployment"
             self.description = "fake for tests only"
 
@@ -114,7 +115,7 @@ class TestMultiDeploy(StdoutTestCase):
         self.assertIsNotNone(device)
         job.device = device
         job.parameters['output_dir'] = mkdtemp()
-        job.setup_logging()
+        job.logger = DummyLogger()
         job.pipeline = pipeline
         counts = {}
         for action_data in self.parsed_data['actions']:
@@ -142,10 +143,10 @@ class TestMultiDeploy(StdoutTestCase):
         job.validate()
         self.assertEqual([], job.pipeline.errors)
         self.assertEqual(job.run(), 0)
-        self.assertNotEqual(pipeline.actions[0].data, {'fake_deploy': pipeline.actions[0].parameters})
-        self.assertEqual(pipeline.actions[1].data, {'fake_deploy': pipeline.actions[2].parameters})
+        self.assertNotEqual(pipeline.actions[0].data, {'fake-deploy': pipeline.actions[0].parameters})
+        self.assertEqual(pipeline.actions[1].data, {'fake-deploy': pipeline.actions[2].parameters})
         # check that values from previous DeployAction run actions have been cleared
-        self.assertEqual(pipeline.actions[2].data, {'fake_deploy': pipeline.actions[2].parameters})
+        self.assertEqual(pipeline.actions[2].data, {'fake-deploy': pipeline.actions[2].parameters})
 
 
 class TestMultiDefinition(StdoutTestCase):  # pylint: disable=too-many-public-methods
@@ -191,5 +192,5 @@ class TestMultiUBoot(StdoutTestCase):  # pylint: disable=too-many-public-methods
 
     def test_multi_uboot(self):
         self.assertIsNotNone(self.job)
-        description_ref = pipeline_reference('uboot-multiple.yaml')
+        description_ref = self.pipeline_reference('uboot-multiple.yaml')
         self.assertEqual(description_ref, self.job.pipeline.describe(False))

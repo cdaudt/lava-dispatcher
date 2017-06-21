@@ -19,8 +19,7 @@
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
 
-import unittest
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import StdoutTestCase
 from lava_dispatcher.pipeline.test.test_uboot import UBootFactory
 from lava_dispatcher.pipeline.actions.boot.kexec import BootKexecAction, KexecAction
 from lava_dispatcher.pipeline.actions.boot import AutoLoginAction
@@ -37,7 +36,7 @@ class TestKExec(StdoutTestCase):
         self.assertIsNotNone(job)
 
         # Check Pipeline
-        description_ref = pipeline_reference('kexec.yaml')
+        description_ref = self.pipeline_reference('kexec.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))
 
         # Check kexec specific options
@@ -66,4 +65,7 @@ class TestKExec(StdoutTestCase):
             kexec.internal_pipeline.actions[0].command
         )
         self.assertIsNotNone(kexec.internal_pipeline.actions[0].parameters['boot_message'])
+
+        self.assertIsNotNone(kexec.internal_pipeline.actions[0].name)
+        self.assertIsNotNone(kexec.internal_pipeline.actions[0].level)
         self.assertEqual(kexec.internal_pipeline.actions[0].timeout.duration, 45)

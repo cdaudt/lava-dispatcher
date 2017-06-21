@@ -1,4 +1,3 @@
-
 commands:
     connect: telnet localhost 7112
     hard_reset: /usr/local/lab-scripts/snmp_pdu_control --hostname pdu18 --command reboot --port 19 --delay 20
@@ -11,6 +10,15 @@ flash_cmds_order: ['update', 'ptable', 'partition', 'hyp', 'modem', 'rpm', 'sbl1
 device_type: dragonboard-410c
 adb_serial_number: c2e02318
 fastboot_serial_number: c2e02318
+fastboot_options: []
+
+constants:
+  shutdown-message: "The system is going down for reboot NOW"
+  boot-message: "Booting Linux"
+  cpu-reset-message: "Resetting CPU"
+  default-shell-prompt: "lava-test: # "
+  uboot-autoboot-prompt: "Hit any key to stop autoboot"
+  uboot-interrupt-character: " "
 
 actions:
   deploy:
@@ -26,7 +34,13 @@ actions:
       serial:
     methods:
       lxc:
-      fastboot-boot-image:
+      fastboot:
+        - no-flash-boot
+        - wait-usb-remove
+        - lxc-add-device
+        - auto-login
+        - shell-session
+        - export-env
 
 timeouts:
   actions:
@@ -34,9 +48,9 @@ timeouts:
       minutes: 2
     dd-image:
       minutes: 10
-    download_retry:
+    download-retry:
       minutes: 5
-    http_download:
+    http-download:
       minutes: 5
     lava-test-shell:
       minutes: 3

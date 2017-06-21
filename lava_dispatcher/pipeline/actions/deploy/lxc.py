@@ -19,24 +19,36 @@
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
 import os
-from time import sleep
 from lava_dispatcher.pipeline.logical import Deployment
 from lava_dispatcher.pipeline.action import (
     Action,
-    Pipeline,
+    ConfigurationError,
     JobError,
-    InfrastructureError,
+    LAVABug,
+    Pipeline,
 )
 from lava_dispatcher.pipeline.actions.deploy import DeployAction
 from lava_dispatcher.pipeline.actions.deploy.overlay import OverlayAction
 from lava_dispatcher.pipeline.actions.deploy.apply_overlay import ApplyLxcOverlay
 from lava_dispatcher.pipeline.actions.deploy.environment import DeployDeviceEnvironment
+from lava_dispatcher.pipeline.actions.boot.lxc import (
+    LxcStartAction,
+    LxcStopAction,
+)
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
 from lava_dispatcher.pipeline.protocols.lxc import LxcProtocol
 from lava_dispatcher.pipeline.utils.constants import (
+    LXC_PATH,
     LXC_TEMPLATE_WITH_MIRROR,
+    LXC_DEFAULT_PACKAGES,
 )
-from lava_dispatcher.pipeline.utils.udev import get_usb_devices
+from lava_dispatcher.pipeline.utils.udev import get_udev_devices
+from lava_dispatcher.pipeline.utils.filesystem import (
+    debian_package_version,
+    lxc_path,
+)
+
+# pylint: disable=superfluous-parens
 
 
 def lxc_accept(device, parameters):
@@ -53,11 +65,11 @@ def lxc_accept(device, parameters):
     if not device:
         return False
     if 'actions' not in device:
-        raise RuntimeError("Invalid device configuration")
+        raise ConfigurationError("Invalid device configuration")
     if 'deploy' not in device['actions']:
         return False
     if 'methods' not in device['actions']['deploy']:
-        raise RuntimeError("Device misconfiguration")
+        raise ConfigurationError("Device misconfiguration")
     return True
 
 
@@ -95,23 +107,38 @@ class LxcAction(DeployAction):  # pylint:disable=too-many-instance-attributes
 
     def validate(self):
         super(LxcAction, self).validate()
+        self.logger.info("lxc, installed at version: %s" %
+                         debian_package_version(pkg='lxc', split=False))
         if LxcProtocol.name not in [protocol.name for protocol in self.job.protocols]:
             self.errors = "Invalid job - missing protocol"
         self.errors = infrastructure_error('lxc-create')
-        lava_test_results_dir = self.parameters['deployment_data']['lava_test_results_dir']
-        lava_test_results_dir = lava_test_results_dir % self.job.job_id
-        self.set_namespace_data(action='test', label='results', key='lava_test_results_dir', value=lava_test_results_dir)
-        lava_test_sh_cmd = self.parameters['deployment_data']['lava_test_sh_cmd']
-        self.set_namespace_data(action=self.name, label='shared', key='lava_test_sh_cmd', value=lava_test_sh_cmd)
+        if self.test_needs_deployment(self.parameters):
+            lava_test_results_dir = self.parameters['deployment_data'][
+                'lava_test_results_dir']
+            lava_test_results_dir = lava_test_results_dir % self.job.job_id
+            self.set_namespace_data(action='test', label='results',
+                                    key='lava_test_results_dir',
+                                    value=lava_test_results_dir)
+            lava_test_sh_cmd = self.parameters['deployment_data'][
+                'lava_test_sh_cmd']
+            self.set_namespace_data(action=self.name, label='shared',
+                                    key='lava_test_sh_cmd',
+                                    value=lava_test_sh_cmd)
 
     def populate(self, parameters):
         self.internal_pipeline = Pipeline(parent=self, job=self.job,
                                           parameters=parameters)
         self.internal_pipeline.add_action(LxcCreateAction())
-        # needed if export device environment is also to be used
-        self.internal_pipeline.add_action(DeployDeviceEnvironment())
-        self.internal_pipeline.add_action(OverlayAction())
-        self.internal_pipeline.add_action(ApplyLxcOverlay())
+        if 'packages' in parameters:
+            self.internal_pipeline.add_action(LxcStartAction())
+            self.internal_pipeline.add_action(LxcAptUpdateAction())
+            self.internal_pipeline.add_action(LxcAptInstallAction())
+            self.internal_pipeline.add_action(LxcStopAction())
+        if self.test_needs_deployment(parameters):
+            self.internal_pipeline.add_action(DeployDeviceEnvironment())
+        if self.test_needs_overlay(parameters):
+            self.internal_pipeline.add_action(OverlayAction())
+            self.internal_pipeline.add_action(ApplyLxcOverlay())
 
 
 class LxcCreateAction(DeployAction):
@@ -141,6 +168,9 @@ class LxcCreateAction(DeployAction):
             self.lxc_data['lxc_template'] = protocol.lxc_template
             self.lxc_data['lxc_mirror'] = protocol.lxc_mirror
             self.lxc_data['lxc_security_mirror'] = protocol.lxc_security_mirror
+            self.lxc_data['verbose'] = protocol.verbose
+            self.lxc_data['lxc_persist'] = protocol.persistence
+            self.lxc_data['custom_lxc_path'] = protocol.custom_lxc_path
 
     def validate(self):
         super(LxcCreateAction, self).validate()
@@ -149,30 +179,106 @@ class LxcCreateAction(DeployAction):
 
     def run(self, connection, max_end_time, args=None):
         connection = super(LxcCreateAction, self).run(connection, max_end_time, args)
+        verbose = '' if self.lxc_data['verbose'] else '-q'
+        lxc_default_path = lxc_path(self.job.parameters['dispatcher'])
+        if self.lxc_data['custom_lxc_path']:
+            lxc_create = ['lxc-create', '-P', lxc_default_path]
+        else:
+            lxc_create = ['lxc-create']
         if self.lxc_data['lxc_template'] in LXC_TEMPLATE_WITH_MIRROR:
-            lxc_cmd = ['lxc-create', '-q', '-t', self.lxc_data['lxc_template'],
-                       '-n', self.lxc_data['lxc_name'], '--', '--release',
-                       self.lxc_data['lxc_release'], '--arch',
-                       self.lxc_data['lxc_arch']]
+            lxc_cmd = lxc_create + [verbose, '-t',
+                                    self.lxc_data['lxc_template'], '-n',
+                                    self.lxc_data['lxc_name'], '--',
+                                    '--release', self.lxc_data['lxc_release']]
             if self.lxc_data['lxc_mirror']:
                 lxc_cmd += ['--mirror', self.lxc_data['lxc_mirror']]
             if self.lxc_data['lxc_security_mirror']:
                 lxc_cmd += ['--security-mirror',
                             self.lxc_data['lxc_security_mirror']]
-            if 'packages' in self.parameters:
-                lxc_cmd += ['--packages',
-                            ','.join(self.parameters['packages'])]
-            cmd_out_str = 'Generation complete.'
+            # FIXME: Should be removed when LAVA's supported distro is bumped
+            #        to Debian Stretch or any distro that supports systemd
+            lxc_cmd += ['--packages', LXC_DEFAULT_PACKAGES]
         else:
-            lxc_cmd = ['lxc-create', '-q', '-t', self.lxc_data['lxc_template'],
-                       '-n', self.lxc_data['lxc_name'], '--', '--dist',
-                       self.lxc_data['lxc_distribution'], '--release',
-                       self.lxc_data['lxc_release'], '--arch',
-                       self.lxc_data['lxc_arch']]
-        if not self.run_command(lxc_cmd, allow_silent=True):
+            lxc_cmd = lxc_create + [verbose, '-t',
+                                    self.lxc_data['lxc_template'], '-n',
+                                    self.lxc_data['lxc_name'], '--', '--dist',
+                                    self.lxc_data['lxc_distribution'],
+                                    '--release', self.lxc_data['lxc_release']]
+        if self.lxc_data['lxc_arch']:
+            lxc_cmd += ['--arch', self.lxc_data['lxc_arch']]
+        cmd_out = self.run_command(lxc_cmd, allow_fail=True, allow_silent=True)
+        if isinstance(cmd_out, str):
+            if 'exists' in cmd_out and self.lxc_data['lxc_persist']:
+                self.logger.debug('Persistant container exists')
+                self.results = {'status': self.lxc_data['lxc_name']}
+        elif not cmd_out:
             raise JobError("Unable to create lxc container")
         else:
+            self.logger.debug('Container created successfully')
             self.results = {'status': self.lxc_data['lxc_name']}
+        # Create symlink in default container path ie., /var/lib/lxc defined by
+        # LXC_PATH so that we need not add '-P' option to every lxc-* command.
+        dst = os.path.join(LXC_PATH, self.lxc_data['lxc_name'])
+        if self.lxc_data['custom_lxc_path'] and not os.path.exists(dst):
+            os.symlink(os.path.join(lxc_default_path,
+                                    self.lxc_data['lxc_name']),
+                       os.path.join(LXC_PATH,
+                                    self.lxc_data['lxc_name']))
+        return connection
+
+
+class LxcAptUpdateAction(DeployAction):
+    """
+    apt-get update the lxc container.
+    """
+
+    def __init__(self):
+        super(LxcAptUpdateAction, self).__init__()
+        self.name = "lxc-apt-update"
+        self.description = "lxc apt update action"
+        self.summary = "lxc apt update"
+        self.retries = 10
+        self.sleep = 10
+
+    def run(self, connection, max_end_time, args=None):
+        connection = super(LxcAptUpdateAction, self).run(connection,
+                                                         max_end_time, args)
+        lxc_name = self.get_namespace_data(action='lxc-create-action',
+                                           label='lxc', key='name')
+        cmd = ['lxc-attach', '-n', lxc_name, '--', 'apt-get', '-y', 'update']
+        if not self.run_command(cmd, allow_silent=True):
+            raise JobError("Unable to apt-get update in lxc container")
+        return connection
+
+
+class LxcAptInstallAction(DeployAction):
+    """
+    apt-get install packages to the lxc container.
+    """
+
+    def __init__(self):
+        super(LxcAptInstallAction, self).__init__()
+        self.name = "lxc-apt-install"
+        self.description = "lxc apt install packages action"
+        self.summary = "lxc apt install"
+        self.retries = 10
+        self.sleep = 10
+
+    def validate(self):
+        super(LxcAptInstallAction, self).validate()
+        if 'packages' not in self.parameters:
+            raise LAVABug("%s package list unavailable" % self.name)
+
+    def run(self, connection, max_end_time, args=None):
+        connection = super(LxcAptInstallAction, self).run(connection,
+                                                          max_end_time, args)
+        lxc_name = self.get_namespace_data(action='lxc-create-action',
+                                           label='lxc', key='name')
+        packages = self.parameters['packages']
+        cmd = ['lxc-attach', '-n', lxc_name, '--', 'apt-get', '-y',
+               'install'] + packages
+        if not self.run_command(cmd):
+            raise JobError("Unable to install using apt-get in lxc container")
         return connection
 
 
@@ -190,7 +296,7 @@ class LxcAddDeviceAction(Action):
     def validate(self):
         super(LxcAddDeviceAction, self).validate()
         if 'device_info' in self.job.device \
-           and type(self.job.device.get('device_info')) is not list:
+           and not isinstance(self.job.device.get('device_info'), list):
             self.errors = "device_info unset"
         try:
             if 'device_info' in self.job.device:
@@ -204,28 +310,24 @@ class LxcAddDeviceAction(Action):
                         self.errors = 'usb_vendor_id unset'
                     if usb_product_id == '0000':
                         self.errors = 'usb_product_id unset'
-        except KeyError as exc:
-            raise InfrastructureError(exc)
-        except (TypeError):
+        except TypeError:
             self.errors = "Invalid parameters for %s" % self.name
 
     def run(self, connection, max_end_time, args=None):
         connection = super(LxcAddDeviceAction, self).run(connection, max_end_time, args)
         # this is the device namespace - the lxc namespace is not accessible
         lxc_name = None
-        protocol = [protocol for protocol in self.job.protocols if protocol.name == LxcProtocol.name][0]
-        if protocol:
-            lxc_name = protocol.lxc_name
+        protocols = [protocol for protocol in self.job.protocols if protocol.name == LxcProtocol.name]
+        if protocols:
+            lxc_name = protocols[0].lxc_name
         if not lxc_name:
             self.logger.debug("No LXC device requested")
-            self.errors = "Unable to use fastboot"
             return connection
 
         self.logger.info("Get USB device(s) ...")
-        device_paths = get_usb_devices(self.job)
+        device_paths = get_udev_devices(self.job, logger=self.logger)
         for device in device_paths:
-            lxc_cmd = ['lxc-device', '-n', lxc_name, 'add',
-                       os.path.realpath(device)]
+            lxc_cmd = ['lxc-device', '-n', lxc_name, 'add', device]
             log = self.run_command(lxc_cmd)
             self.logger.debug(log)
             self.logger.debug("%s: device %s added", lxc_name, device)

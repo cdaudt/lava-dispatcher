@@ -20,12 +20,11 @@
 
 
 import os
-import unittest
 from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.parser import JobParser
-from lava_dispatcher.pipeline.job import Job
 from lava_dispatcher.pipeline.action import JobError
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 
 
 class Cmsis_Factory(Factory):  # pylint: disable=too-few-public-methods
@@ -41,6 +40,7 @@ class Cmsis_Factory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 4999, None, "",
                                output_dir=output_dir)
+        job.logger = DummyLogger()
         return job
 
 
@@ -51,7 +51,7 @@ class TestCMSISAction(StdoutTestCase):  # pylint: disable=too-many-public-method
         job = factory.create_k64f_job('sample_jobs/zephyr-frdm-k64f-cmsis-test-kernel-common.yaml')
         job.device['actions']['boot']['methods']['cmsis-dap']['parameters']['usb_mass_device'] = '/tmp/doesntexist'
         self.assertRaises(JobError, job.validate)
-        self.assertEqual(job.pipeline.errors, ['usb_mass_device does not exist /tmp/doesntexist', 'Invalid job definition'])
+        self.assertEqual(job.pipeline.errors, ['usb_mass_device does not exist /tmp/doesntexist'])
         job = factory.create_k64f_job('sample_jobs/zephyr-frdm-k64f-cmsis-test-kernel-common.yaml')
         job.device['actions']['boot']['methods']['cmsis-dap']['parameters']['usb_mass_device'] = '/dev/null'
         try:
@@ -65,5 +65,5 @@ class TestCMSISAction(StdoutTestCase):  # pylint: disable=too-many-public-method
         job = factory.create_k64f_job('sample_jobs/zephyr-frdm-k64f-cmsis-test-kernel-common.yaml')
         job.device['actions']['boot']['methods']['cmsis-dap']['parameters']['usb_mass_device'] = '/dev/null'
         job.validate()
-        description_ref = pipeline_reference('cmsis.yaml')
+        description_ref = self.pipeline_reference('cmsis.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))

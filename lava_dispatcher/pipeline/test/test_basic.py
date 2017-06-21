@@ -23,15 +23,15 @@ import sys
 import time
 import unittest
 import logging
-import simplejson
 import yaml
 
 from lava_dispatcher.pipeline.utils.filesystem import mkdtemp
-from lava_dispatcher.pipeline.action import Pipeline, Action, JobError
+from lava_dispatcher.pipeline.action import Pipeline, Action, JobError, LAVABug, LAVAError
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.job import Job
 from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.actions.deploy.image import DeployImages
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 
 # pylint: disable=superfluous-parens,too-few-public-methods
 
@@ -43,6 +43,20 @@ class StdoutTestCase(unittest.TestCase):  # pylint: disable=too-many-public-meth
         logger = logging.getLogger('dispatcher')
         logger.disabled = True
         logger.propagate = False
+        # set to True to update pipeline_references automatically.
+        self.update_ref = False
+        self.job = None
+
+    def pipeline_reference(self, filename, job=None):
+        y_file = os.path.join(os.path.dirname(__file__), 'pipeline_refs', filename)
+        if self.update_ref:
+            if not job:
+                job = self.job
+            sys.stderr.write('WARNING: modifying pipeline references!')
+            with open(y_file, 'w') as describe:
+                yaml.dump(job.pipeline.describe(False), describe)
+        with open(y_file, 'r') as f_ref:
+            return yaml.load(f_ref)
 
 
 class TestAction(StdoutTestCase):  # pylint: disable=too-many-public-methods
@@ -69,13 +83,15 @@ class TestPipelineInit(StdoutTestCase):  # pylint: disable=too-many-public-metho
             raise NotImplementedError("invalid")
 
     def setUp(self):
-        super(StdoutTestCase, self).setUp()
+        super(TestPipelineInit, self).setUp()
         self.sub0 = TestPipelineInit.FakeAction()
         self.sub1 = TestPipelineInit.FakeAction()
 
     def test_pipeline_init(self):
         self.assertIsNotNone(self.sub0)
         self.assertIsNotNone(self.sub1)
+        # prevent reviews leaving update_ref set to True.
+        self.assertFalse(self.update_ref)
 
 
 class TestJobParser(StdoutTestCase):  # pylint: disable=too-many-public-methods
@@ -95,12 +111,6 @@ class TestJobParser(StdoutTestCase):  # pylint: disable=too-many-public-methods
         if not self.job:
             return unittest.skip("not all deployments have been implemented")
         self.assertTrue(self.job.actions > 1)  # pylint: disable=no-member
-
-
-def pipeline_reference(filename):
-    y_file = os.path.join(os.path.dirname(__file__), 'pipeline_refs', filename)
-    with open(y_file, 'r') as f_ref:
-        return yaml.load(f_ref)
 
 
 class TestValidation(StdoutTestCase):  # pylint: disable=too-many-public-methods
@@ -151,7 +161,7 @@ class Factory(object):
             with open(sample_job_file) as sample_job_data:
                 job = parser.parse(sample_job_data, device, 4212, None, "",
                                    output_dir=output_dir)
-        except NotImplementedError:
+        except LAVAError:
             # some deployments listed in basics.yaml are not implemented yet
             return None
         return job
@@ -164,7 +174,8 @@ class Factory(object):
             with open(kvm_yaml) as sample_job_data:
                 job = parser.parse(sample_job_data, device, 4212, None, "",
                                    output_dir=output_dir)
-        except NotImplementedError as exc:
+            job.logger = DummyLogger()
+        except LAVAError as exc:
             print(exc)
             # some deployments listed in basics.yaml are not implemented yet
             return None
@@ -196,19 +207,19 @@ class TestPipeline(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self.assertEqual(action.description, "test action only")
         self.assertEqual(action.summary, "starter")
         # action needs to be added to a top level pipe first
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LAVABug):
             Pipeline(action)
         pipe = Pipeline()
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LAVABug):
             pipe.add_action(None)
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LAVABug):
             pipe.add_action(pipe)
         pipe.add_action(action)
         self.assertEqual(pipe.actions, [action])
         self.assertEqual(action.level, "1")
         try:
             description = pipe.describe()
-        except Exception as exc:  # pylint: disable=bare-except
+        except Exception as exc:  # pylint: disable=broad-except
             self.fail(exc)
         self.assertIsNotNone(description)
         self.assertIsInstance(description, list)
@@ -231,7 +242,7 @@ class TestPipeline(StdoutTestCase):  # pylint: disable=too-many-public-methods
         action.name = "child_action"
         action.summary = "child"
         action.description = "action implementing an internal pipe"
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LAVABug):
             Pipeline(action)
         pipe.add_action(action)
         self.assertEqual(action.level, "2")

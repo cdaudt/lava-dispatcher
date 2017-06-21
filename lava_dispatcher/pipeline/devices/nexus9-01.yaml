@@ -1,7 +1,17 @@
 device_type: nexus9
 adb_serial_number: HT4B7JT01005
 fastboot_serial_number: HT4B7JT01005
-device_path: ['/dev/bus/usb/004']
+fastboot_options: []
+device_info: [{'board_id': 'HT4B7JT01005'}]
+flash_cmds_order: ['update', 'ptable', 'partition', 'cache', 'userdata', 'system']
+
+constants:
+  shutdown-message: "The system is going down for reboot NOW"
+  boot-message: "Booting Linux"
+  cpu-reset-message: "Resetting CPU"
+  default-shell-prompt: "lava-test: # "
+  uboot-autoboot-prompt: "Hit any key to stop autoboot"
+  uboot-interrupt-character: " "
 
 actions:
   deploy:
@@ -17,6 +27,9 @@ actions:
     methods:
       lxc:
       fastboot:
+        - reboot
+        - wait-usb-add
+        - lxc-add-device
 
 timeouts:
   actions:

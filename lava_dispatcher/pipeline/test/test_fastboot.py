@@ -24,9 +24,14 @@ import unittest
 from lava_dispatcher.pipeline.device import NewDevice
 from lava_dispatcher.pipeline.parser import JobParser
 from lava_dispatcher.pipeline.utils.filesystem import mkdtemp
-from lava_dispatcher.pipeline.utils.shell import infrastructure_error
+from lava_dispatcher.pipeline.utils.shell import (
+    infrastructure_error,
+    infrastructure_error_multi_paths,
+)
 from lava_dispatcher.pipeline.action import JobError
-from lava_dispatcher.pipeline.test.test_basic import pipeline_reference, Factory, StdoutTestCase
+from lava_dispatcher.pipeline.protocols.lxc import LxcProtocol
+from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 from lava_dispatcher.pipeline.actions.deploy import DeployAction
 from lava_dispatcher.pipeline.actions.boot.fastboot import BootAction
 
@@ -45,6 +50,7 @@ class FastBootFactory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 4212, None, "",
                                output_dir=output_dir)
+            job.logger = DummyLogger()
         return job
 
     def create_db410c_job(self, filename, output_dir='/tmp/'):  # pylint: disable=no-self-use
@@ -57,7 +63,7 @@ class FastBootFactory(Factory):  # pylint: disable=too-few-public-methods
         return job
 
     def create_x15_job(self, filename, output_dir='/tmp/'):  # pylint: disable=no-self-use
-        device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/pg-x15-01_config.yaml'))
+        device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/x15-01.yaml'))
         fastboot_yaml = os.path.join(os.path.dirname(__file__), filename)
         with open(fastboot_yaml) as sample_job_data:
             parser = JobParser()
@@ -72,6 +78,27 @@ class FastBootFactory(Factory):  # pylint: disable=too-few-public-methods
             parser = JobParser()
             job = parser.parse(sample_job_data, device, 4212, None, "",
                                output_dir=output_dir)
+            job.logger = DummyLogger()
+        return job
+
+    def create_nexus5x_job(self, filename, output_dir='/tmp/'):  # pylint: disable=no-self-use
+        device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/nexus5x-01.yaml'))
+        fastboot_yaml = os.path.join(os.path.dirname(__file__), filename)
+        with open(fastboot_yaml) as sample_job_data:
+            parser = JobParser()
+            job = parser.parse(sample_job_data, device, 4212, None, "",
+                               output_dir=output_dir)
+            job.logger = DummyLogger()
+        return job
+
+    def create_pixel_job(self, filename, output_dir='/tmp/'):  # pylint: disable=no-self-use
+        device = NewDevice(os.path.join(os.path.dirname(__file__), '../devices/pixel-01.yaml'))
+        fastboot_yaml = os.path.join(os.path.dirname(__file__), filename)
+        with open(fastboot_yaml) as sample_job_data:
+            parser = JobParser()
+            job = parser.parse(sample_job_data, device, 4212, None, "",
+                               output_dir=output_dir)
+            job.logger = DummyLogger()
         return job
 
 
@@ -91,13 +118,39 @@ class TestFastbootDeploy(StdoutTestCase):  # pylint: disable=too-many-public-met
                 self.assertEqual(action.job, self.job)
 
     def test_pipeline(self):
-        description_ref = pipeline_reference('fastboot.yaml')
+        description_ref = self.pipeline_reference('fastboot.yaml')
         self.assertEqual(description_ref, self.job.pipeline.describe(False))
+
+    @unittest.skipIf(infrastructure_error_multi_paths(
+        ['lxc-info', 'img2simg', 'simg2img']),
+        "lxc or img2simg or simg2img not installed")
+    def test_lxc_api(self):
+        job = self.factory.create_hikey_job('sample_jobs/hikey-oe.yaml',
+                                            mkdtemp())
+        description_ref = self.pipeline_reference('hikey-oe.yaml', job=job)
+        job.validate()
+        self.assertEqual(description_ref, job.pipeline.describe(False))
+        self.assertIn(LxcProtocol.name, [protocol.name for protocol in job.protocols])
+        self.assertEqual(len(job.protocols), 1)
+        self.assertIsNone(job.device.pre_os_command)  # FIXME: a real device config would typically need this.
+        uefi_menu = [action for action in job.pipeline.actions if action.name == 'uefi-menu-action'][0]
+        select = [action for action in uefi_menu.internal_pipeline.actions if action.name == 'uefi-menu-selector'][0]
+        self.assertIn(LxcProtocol.name, select.parameters.keys())
+        self.assertIn('protocols', select.parameters.keys())
+        self.assertIn(LxcProtocol.name, select.parameters['protocols'].keys())
+        self.assertEqual(len(select.parameters['protocols'][LxcProtocol.name]), 1)
+        lxc_active = any([protocol for protocol in job.protocols if protocol.name == LxcProtocol.name])
+        self.assertTrue(lxc_active)
+        for calling in select.parameters['protocols'][LxcProtocol.name]:
+            self.assertEqual(calling['action'], select.name)
+            self.assertEqual(calling['request'], 'pre-os-command')
 
     @unittest.skipIf(infrastructure_error('lxc-info'), "lxc-info not installed")
     def test_fastboot_lxc(self):
         job = self.factory.create_hikey_job('sample_jobs/hi6220-hikey.yaml',
                                             mkdtemp())
+        description_ref = self.pipeline_reference('hi6220-hikey.yaml', job=job)
+        self.assertEqual(description_ref, job.pipeline.describe(False))
         uefi_menu = [action for action in job.pipeline.actions if action.name == 'uefi-menu-action'][0]
         self.assertIn('commands', uefi_menu.parameters)
         self.assertIn('fastboot', uefi_menu.parameters['commands'])
@@ -110,13 +163,13 @@ class TestFastbootDeploy(StdoutTestCase):  # pylint: disable=too-many-public-met
         job.validate()
         self.assertEqual(
             {
-                '1.3.3.20': '4_android-optee',
-                '1.3.3.4': '0_get-adb-serial',
-                '1.3.3.12': '2_android-busybox',
-                '1.3.3.8': '1_android-meminfo',
-                '1.3.3.16': '3_android-ping-dns'},
+                '1.7.3.20': '4_android-optee',
+                '1.7.3.4': '0_get-adb-serial',
+                '1.7.3.12': '2_android-busybox',
+                '1.7.3.8': '1_android-meminfo',
+                '1.7.3.16': '3_android-ping-dns'},
             testdef.get_namespace_data(action='test-runscript-overlay', label='test-runscript-overlay', key='testdef_levels'))
-        for testdef in testdef.test_list:
+        for testdef in testdef.test_list[0]:
             self.assertEqual('git', testdef['from'])
 
     @unittest.skipIf(infrastructure_error('lxc-create'),
@@ -135,7 +188,7 @@ class TestFastbootDeploy(StdoutTestCase):  # pylint: disable=too-many-public-met
             self.assertIsNotNone(action.name)
             if isinstance(action, DeployAction):
                 if action.parameters['namespace'] == 'tlxc':
-                    overlay = action.pipeline.actions[2]
+                    overlay = action.pipeline.actions[6]
         self.assertIsNotNone(overlay)
         # these tests require that lava-dispatcher itself is installed, not just running tests from a git clone
         self.assertTrue(os.path.exists(overlay.lava_test_dir))
@@ -171,17 +224,28 @@ class TestFastbootDeploy(StdoutTestCase):  # pylint: disable=too-many-public-met
         job = self.factory.create_db410c_job('sample_jobs/db410c.yaml', mkdtemp())
         self.assertTrue(job.device.get('fastboot_via_uboot', True))
         self.assertEqual('', self.job.device.power_command)
-        import yaml
-        with open('/tmp/test.yaml', 'w') as describe:
-            yaml.dump(job.pipeline.describe(False), describe)
-        description_ref = pipeline_reference('db410c.yaml')
+        description_ref = self.pipeline_reference('db410c.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))
-        boot = [action for action in job.pipeline.actions if action.name == 'fastboot_boot'][0]
+        boot = [action for action in job.pipeline.actions if action.name == 'fastboot-boot'][0]
         wait = [action for action in boot.internal_pipeline.actions if action.name == 'wait-usb-device'][0]
-        self.assertEqual(wait.device_actions, ['add', 'change', 'online', 'remove'])
+        self.assertEqual(wait.device_actions, ['remove'])
 
     def test_x15_job(self):
         self.factory = FastBootFactory()
         job = self.factory.create_x15_job('sample_jobs/x15.yaml', mkdtemp())
-        description_ref = pipeline_reference('x15.yaml')
+        description_ref = self.pipeline_reference('x15.yaml', job=job)
+        self.assertEqual(description_ref, job.pipeline.describe(False))
+
+    def test_nexus5x_job(self):
+        self.factory = FastBootFactory()
+        job = self.factory.create_nexus5x_job('sample_jobs/nexus5x.yaml',
+                                              mkdtemp())
+        description_ref = self.pipeline_reference('nexus5x.yaml', job=job)
+        self.assertEqual(description_ref, job.pipeline.describe(False))
+
+    def test_pixel_job(self):
+        self.factory = FastBootFactory()
+        job = self.factory.create_pixel_job('sample_jobs/pixel.yaml',
+                                            mkdtemp())
+        description_ref = self.pipeline_reference('pixel.yaml', job=job)
         self.assertEqual(description_ref, job.pipeline.describe(False))

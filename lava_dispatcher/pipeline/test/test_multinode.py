@@ -23,6 +23,7 @@ import os
 import yaml
 import uuid
 import json
+import logging
 from lava_dispatcher.pipeline.test.fake_coordinator import TestCoordinator
 from lava_dispatcher.pipeline.test.test_basic import Factory, StdoutTestCase
 from lava_dispatcher.pipeline.actions.deploy.image import DeployImagesAction
@@ -39,6 +40,7 @@ from lava_dispatcher.pipeline.action import (
 )
 from lava_dispatcher.pipeline.utils.constants import LAVA_MULTINODE_SYSTEM_TIMEOUT
 from lava_dispatcher.pipeline.test.test_defs import allow_missing_path
+from lava_dispatcher.pipeline.test.utils import DummyLogger
 
 
 # pylint: disable=protected-access,superfluous-parens
@@ -54,6 +56,8 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         factory = Factory()
         self.client_job = factory.create_kvm_job('sample_jobs/kvm-multinode-client.yaml')
         self.server_job = factory.create_kvm_job('sample_jobs/kvm-multinode-server.yaml')
+        self.client_job.logger = DummyLogger()
+        self.server_job.logger = DummyLogger()
         self.job_id = "100"
         self.coord = TestCoordinator()
 
@@ -175,7 +179,7 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self.assertIsNotNone(testshell)
         testshell.validate()
         self.assertIsNotNone(testshell.protocols)
-        self.assertEqual(testshell.timeout.duration, 30)
+        self.assertEqual(testshell.timeout.duration, 180)
         self.assertIn(MultinodeProtocol.name, [protocol.name for protocol in testshell.protocols])
         protocol_names = [protocol.name for protocol in testshell.protocols if protocol in testshell.protocols]
         self.assertNotEqual(protocol_names, [])
@@ -226,7 +230,7 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         """
         testshell = [action for action in self.server_job.pipeline.actions if isinstance(action, MultinodeTestAction)][0]
         testshell.validate()
-        self.assertEqual(30, testshell.timeout.duration)
+        self.assertEqual(180, testshell.timeout.duration)
         self.assertIsNotNone(testshell.signal_director)
         self.assertIsNotNone(testshell.signal_director.protocol)
         self.assertIs(type(testshell.protocols), list)
@@ -234,18 +238,21 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self.assertIsInstance(testshell.signal_director.protocol, MultinodeProtocol)
 
     def test_empty_poll(self):
-        """ Check that an empty message gives an empty response
+        """
+        Check that an empty message gives an empty response
         """
         self.assertIsNone(self.coord.dataReceived({}))
 
     def test_empty_receive(self):
-        """ Explicitly expect an empty response with an empty message
+        """
+        Explicitly expect an empty response with an empty message
         """
         self.assertIsNone(self.coord.expectResponse(None))
         self.coord.dataReceived({})
 
     def test_start_group_incomplete(self):
-        """ Create a group but fail to populate it with enough devices and cleanup
+        """
+        Create a group but fail to populate it with enough devices and cleanup
         """
         self.coord.group_name = str(uuid.uuid4())
         self.coord.group_size = 2
@@ -264,7 +271,8 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self._cleanup()
 
     def test_start_group_complete(self):
-        """ Create a group with enough devices and check for no errors.
+        """
+        Create a group with enough devices and check for no errors.
         """
         self.coord.newGroup(2)
         ret = self.coord.addClient("completing")
@@ -273,6 +281,8 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
         self.assertTrue(ret == "completed")
 
     def test_client(self):
+        logger = logging.getLogger()
+        logger.disabled = True
         client = TestMultinode.TestClient(self.coord,
                                           self.client_job.parameters,
                                           self.job_id)
@@ -442,10 +452,10 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
                 'action': customise.name,
                 'request': 'lava-send',
                 'messageID': 'test',
-                'yaml_line': 48,
+                'yaml_line': 46,
                 'message': {
                     'key': 'value',
-                    'yaml_line': 50
+                    'yaml_line': 48
                 },
             }
         )
@@ -463,11 +473,11 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
                 'action': 'customise',
                 'message': {
                     'key': 'value',
-                    'yaml_line': 50
+                    'yaml_line': 48
                 },
                 'messageID': 'test',
                 'request': 'lava-send',
-                'yaml_line': 48
+                'yaml_line': 46
             }
         )
 
@@ -489,11 +499,11 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
                 'action': 'execute-qemu',
                 'message': {
                     'ipv4': '$IPV4',
-                    'yaml_line': 67
+                    'yaml_line': 65
                 },
                 'messageID': 'test',
                 'request': 'lava-wait',
-                'yaml_line': 64
+                'yaml_line': 62
             }])
         client_calls = {}
         for action in retry.internal_pipeline.actions:
@@ -539,9 +549,9 @@ class TestMultinode(StdoutTestCase):  # pylint: disable=too-many-public-methods
                 'action': 'execute-qemu',
                 'message': {
                     'ipv4': reply['message'][self.client_job.device.target]['ipv4'],
-                    'yaml_line': 67
+                    'yaml_line': 65
                 },
-                'yaml_line': 64,
+                'yaml_line': 62,
                 'request': 'lava-wait',
                 'messageID': 'test'
             }
