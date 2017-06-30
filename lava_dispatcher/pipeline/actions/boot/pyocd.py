@@ -18,6 +18,7 @@
 # along
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
+import os
 from lava_dispatcher.pipeline.action import (
     Pipeline,
     Action,
@@ -28,6 +29,8 @@ from lava_dispatcher.pipeline.actions.boot import BootAction
 from lava_dispatcher.pipeline.connections.serial import ConnectDevice
 from lava_dispatcher.pipeline.utils.shell import infrastructure_error
 from lava_dispatcher.pipeline.utils.strings import substitute
+from lava_dispatcher.pipeline.utils.filesystem import copy_to_lxc
+from lava_dispatcher.pipeline.protocols.lxc import LxcProtocol
 
 
 class PyOCD(Boot):
@@ -78,7 +81,11 @@ class BootPyOCDRetry(RetryAction):
     def populate(self, parameters):
         self.internal_pipeline = Pipeline(parent=self, job=self.job, parameters=parameters)
         self.internal_pipeline.add_action(FlashPyOCDAction())
-        self.internal_pipeline.add_action(ConnectDevice())
+        # Do not use direct serial connection when using the LXC protocol
+        if (not self.job.protocols or
+            not [protocol for protocol in self.job.protocols
+                 if protocol.name == LxcProtocol.name][0]):
+            self.internal_pipeline.add_action(ConnectDevice())
 
 
 class FlashPyOCDAction(Action):
@@ -90,6 +97,8 @@ class FlashPyOCDAction(Action):
         self.summary = "flash pyocd to boot the image"
         self.base_command = []
         self.exec_list = []
+        self.filelist = []
+        self.lxc_name = None
 
     def validate(self):
         super(FlashPyOCDAction, self).validate()
@@ -103,10 +112,21 @@ class FlashPyOCDAction(Action):
         substitutions = {}
         self.base_command.extend(['--board', self.job.device['board_id']])
         namespace = self.parameters['namespace']
+        if self.job.protocols:
+            protocol = [protocol for protocol in self.job.protocols if
+                        protocol.name == LxcProtocol.name][0]
+            if protocol:
+                self.lxc_name = protocol.lxc_name
         for action in self.data[namespace]['download-action'].keys():
             pyocd_full_command = []
             image_arg = self.get_namespace_data(action='download-action', label=action, key='image_arg')
             action_arg = self.get_namespace_data(action='download-action', label=action, key='file')
+            if self.lxc_name:
+                # Files will be copied to root directory of LXC
+                self.filelist.extend([action_arg])
+                action_arg = os.path.join('/', os.path.basename(action_arg))
+                # Commands will execute inside LXC
+                pyocd_full_command.extend(['lxc-attach -n {} --'.format(self.lxc_name)])
             if image_arg:
                 if not isinstance(image_arg, str):
                     self.errors = "image_arg is not a string (try quoting it)"
@@ -124,6 +144,11 @@ class FlashPyOCDAction(Action):
 
     def run(self, connection, max_end_time, args=None):
         connection = super(FlashPyOCDAction, self).run(connection, max_end_time, args)
+        if self.lxc_name:
+            # Copy all the files over to LXC rootfs
+            for src in self.filelist:
+                dst = copy_to_lxc(self.lxc_name, src,
+                                  self.job.parameters['dispatcher'])
         for pyocd_command in self.exec_list:
             pyocd = ' '.join(pyocd_command)
             self.logger.info("PyOCD command: %s", pyocd)
