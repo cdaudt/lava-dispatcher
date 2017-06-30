@@ -763,7 +763,8 @@ class TestOverlayAction(TestAction):  # pylint: disable=too-many-instance-attrib
             for param_name, param_value in list(self.parameters['parameters'].items()):
                 if param_name is 'yaml_line':
                     continue
-                ret_val.append('%s=\'%s\'\n' % (param_name, param_value))
+                # export the variables so other scripts can access them
+                ret_val.append('export %s=\'%s\'\n' % (param_name, param_value))
                 self.logger.debug("%s='%s'", param_name, param_value)
         if 'params' in self.parameters and self.parameters['params'] != '':
             # turn a string into a local variable.
