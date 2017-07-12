@@ -744,7 +744,14 @@ class TestOverlayAction(TestAction):  # pylint: disable=too-many-instance-attrib
             self.errors = "Missing path in parameters"
 
     def handle_parameters(self, testdef):
-        ret_val = ['###default parameters from test definition###\n']
+        ret_val = ['###test parameters from device configuration###\n']
+        if 'test_shell_parameters' in self.job.device:
+            for param_name, param_value in self.job.device['test_shell_parameters'].items():
+                if param_name is 'yaml_list':
+                    continue
+                ret_val.append('export %s=\'%s\'\n' % (param_name, param_value))
+        ret_val.append('######\n')
+        ret_val.append('###default parameters from test definition###\n')
         if 'params' in testdef:
             for def_param_name, def_param_value in list(testdef['params'].items()):
                 if def_param_name is 'yaml_line':
