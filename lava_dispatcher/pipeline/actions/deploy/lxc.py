@@ -197,7 +197,7 @@ class LxcCreateAction(DeployAction):
                             self.lxc_data['lxc_security_mirror']]
             # FIXME: Should be removed when LAVA's supported distro is bumped
             #        to Debian Stretch or any distro that supports systemd
-            lxc_cmd += ['--packages', LXC_DEFAULT_PACKAGES]
+#            lxc_cmd += ['--packages', LXC_DEFAULT_PACKAGES]
         else:
             lxc_cmd = lxc_create + [verbose, '-t',
                                     self.lxc_data['lxc_template'], '-n',
